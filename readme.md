@@ -1,7 +1,7 @@
 SECURE CHAT SIMULATION ENCRYPTED MESSAGING APP
 Group members : Nayana kottukkalpoovassery Ajayan(20050722)
-                Christeena jaison()
-                Mohammed Unnais
+                Christeena jaison(20061098)
+                Mohammed Unnais()
 project summary 
      This is a secure communication simulation using public-key encryption in Python. It simulates encrypted message exchange between two users (nayana & chris),
      who have not met to exchange keys.
