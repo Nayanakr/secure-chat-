@@ -15,7 +15,7 @@ How It Works
 3. Messages are encrypted using the recipient’s public key
 4. Messages are decrypted using the recipient’s private key
 Files
-- `secure_chat_simulation.py`: Main application
+- secure_chat_simulation.py`: Main application
 - `*.pem` files: RSA key files
 - `README.md`: This documentation
 
