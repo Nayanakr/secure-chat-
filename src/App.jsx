@@ -8,6 +8,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
+  getRedirectResult,
 } from "firebase/auth";
 
 // Firebase config
@@ -26,6 +27,35 @@ const auth = getAuth(app);
 
 const ChatApp = () => {
   const [user, setUser] = useState(null);
+  // Handle Google sign-in redirect result and auth state changes
+  useEffect(() => {
+    const checkRedirectResult = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result && result.user) {
+          setUser({
+            email: result.user.email,
+            displayName:
+              result.user.displayName || result.user.email.split("@")[0],
+          });
+        }
+      } catch (error) {}
+    };
+    checkRedirectResult();
+
+    // Listen for auth state changes
+    const unsubscribe = auth.onAuthStateChanged((userObj) => {
+      if (userObj) {
+        setUser({
+          email: userObj.email,
+          displayName: userObj.displayName || userObj.email.split("@")[0],
+        });
+      } else {
+        setUser(null);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
   const [messages, setMessages] = useState([
     {
       id: 1,
