@@ -8,20 +8,59 @@ import {
   query,
   orderBy,
   onSnapshot,
+  doc,
+  setDoc,
+  getDoc,
 } from "firebase/firestore";
 import AuthForm from "./AuthForm";
+import ChatWindow from "./ChatWindow";
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
-  const messagesEndRef = useRef(null);
   const [loading, setLoading] = useState(false);
   const db = getFirestore(app);
 
+  // --- Key Management ---
+  // Generate key pair and store public in Firestore, private in localStorage
+  async function generateAndStoreKeys(user) {
+    if (!user) return;
+    // Check if private key exists locally
+    if (localStorage.getItem("privateKey")) return;
+    // Generate key pair
+    const keyPair = await window.crypto.subtle.generateKey(
+      {
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: "SHA-256",
+      },
+      true,
+      ["encrypt", "decrypt"]
+    );
+    // Export and store public key in Firestore
+    const publicKeyJwk = await window.crypto.subtle.exportKey(
+      "jwk",
+      keyPair.publicKey
+    );
+    await setDoc(doc(db, "users", user.uid), {
+      publicKey: publicKeyJwk,
+      email: user.email,
+    });
+    // Export and store private key in localStorage
+    const privateKeyJwk = await window.crypto.subtle.exportKey(
+      "jwk",
+      keyPair.privateKey
+    );
+    localStorage.setItem("privateKey", JSON.stringify(privateKeyJwk));
+  }
+
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
       setUser(user);
+      if (user) {
+        await generateAndStoreKeys(user);
+      }
     });
     return unsubscribe;
   }, []);
@@ -33,10 +72,6 @@ export default function App() {
     });
     return unsubscribe;
   }, [db]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
 
   const handleSignOut = async () => {
     await firebaseSignOut(auth);
@@ -68,62 +103,14 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center bg-gradient-to-br from-purple-600 via-blue-600 to-teal-500 p-4">
-      <div className="w-full max-w-2xl bg-white rounded-xl shadow-lg flex flex-col h-[80vh]">
-        <div className="flex items-center justify-between p-4 border-b">
-          <div>
-            <h1 className="text-xl font-bold">Firebase Chat</h1>
-            <p className="text-sm text-gray-500">{user.email}</p>
-          </div>
-          <button
-            onClick={handleSignOut}
-            className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
-          >
-            Sign Out
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex ${
-                msg.uid === user.uid ? "justify-end" : "justify-start"
-              }`}
-            >
-              <div
-                className={`px-4 py-2 rounded-lg shadow text-sm max-w-xs break-words ${
-                  msg.uid === user.uid
-                    ? "bg-blue-500 text-white"
-                    : "bg-gray-200 text-gray-800"
-                }`}
-              >
-                <span className="block font-semibold">
-                  {msg.uid === user.uid ? "You" : msg.email}
-                </span>
-                <span>{msg.text}</span>
-              </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-        <div className="p-4 border-t flex gap-2">
-          <input
-            type="text"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Type a message..."
-            className="flex-1 border rounded px-3 py-2"
-          />
-          <button
-            onClick={handleSendMessage}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-            disabled={!newMessage.trim()}
-          >
-            Send
-          </button>
-        </div>
-      </div>
-    </div>
+    <ChatWindow
+      user={user}
+      messages={messages}
+      newMessage={newMessage}
+      setNewMessage={setNewMessage}
+      handleSendMessage={handleSendMessage}
+      handleSignOut={handleSignOut}
+      handleKeyPress={handleKeyPress}
+    />
   );
 }
