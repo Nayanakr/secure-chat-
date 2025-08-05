@@ -1,122 +1,56 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Send, MessageCircle } from "lucide-react";
-import AuthForm from "./AuthForm";
-import { app, analytics, auth } from "./firebase";
+import { auth, app } from "./firebase";
+import { signOut as firebaseSignOut } from "firebase/auth";
 import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut as firebaseSignOut,
-  getRedirectResult,
-} from "firebase/auth";
+  getFirestore,
+  collection,
+  addDoc,
+  query,
+  orderBy,
+  onSnapshot,
+} from "firebase/firestore";
+import AuthForm from "./AuthForm";
 
-// Firebase config is now in src/firebase.js
-
-const ChatApp = () => {
-  // Handle Google sign-in redirect result
-  useEffect(() => {
-    const checkRedirectResult = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result && result.user) {
-          setUser({
-            email: result.user.email,
-            displayName:
-              result.user.displayName || result.user.email.split("@")[0],
-          });
-        }
-      } catch (error) {
-        // Optionally handle error
-      }
-    };
-    checkRedirectResult();
-  }, []);
+export default function App() {
   const [user, setUser] = useState(null);
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      user: "John",
-      text: "Hey everyone!",
-      timestamp: new Date().toLocaleTimeString(),
-    },
-    {
-      id: 2,
-      user: "Sarah",
-      text: "Hello! How is everyone doing?",
-      timestamp: new Date().toLocaleTimeString(),
-    },
-  ]);
+  const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
   const messagesEndRef = useRef(null);
   const [loading, setLoading] = useState(false);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  const db = getFirestore(app);
 
   useEffect(() => {
-    scrollToBottom();
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      setUser(user);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const q = query(collection(db, "messages"), orderBy("createdAt"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setMessages(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    });
+    return unsubscribe;
+  }, [db]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Firebase Auth handlers
-  const handleAuth = async (email, password, isSignUp) => {
-    setLoading(true);
-    try {
-      let userCredential;
-      if (isSignUp) {
-        userCredential = await createUserWithEmailAndPassword(
-          auth,
-          email,
-          password
-        );
-      } else {
-        userCredential = await signInWithEmailAndPassword(
-          auth,
-          email,
-          password
-        );
-      }
-      const userObj = userCredential.user;
-      setUser({
-        email: userObj.email,
-        displayName: userObj.email.split("@")[0],
-      });
-    } catch (error) {
-      alert(error.message);
-    }
-    setLoading(false);
-  };
-
-  const signOut = async () => {
+  const handleSignOut = async () => {
     await firebaseSignOut(auth);
-    setUser(null);
-    setMessages([
-      {
-        id: 1,
-        user: "John",
-        text: "Hey everyone!",
-        timestamp: new Date().toLocaleTimeString(),
-      },
-      {
-        id: 2,
-        user: "Sarah",
-        text: "Hello! How is everyone doing?",
-        timestamp: new Date().toLocaleTimeString(),
-      },
-    ]);
   };
 
-  const handleSendMessage = () => {
-    if (newMessage.trim() && user) {
-      const message = {
-        id: Date.now(),
-        user: user.displayName,
-        text: newMessage,
-        timestamp: new Date().toLocaleTimeString(),
-        isOwn: true,
-      };
-      setMessages((prev) => [...prev, message]);
-      setNewMessage("");
-    }
+  const handleSendMessage = async () => {
+    if (!newMessage.trim()) return;
+    await addDoc(collection(db, "messages"), {
+      text: newMessage,
+      createdAt: new Date(),
+      uid: user.uid,
+      email: user.email,
+    });
+    setNewMessage("");
   };
 
   const handleKeyPress = (e) => {
@@ -125,120 +59,71 @@ const ChatApp = () => {
     }
   };
 
-  // Auth screen
   if (!user) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-teal-500 flex items-center justify-center p-4">
-        <AuthForm onSignIn={handleAuth} loading={loading} />
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-600 via-blue-600 to-teal-500">
+        <AuthForm setLoading={setLoading} loading={loading} />
       </div>
     );
   }
 
-  // Main chat interface
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-teal-500">
-      <div className="container mx-auto p-4 h-screen flex flex-col max-w-4xl">
-        {/* Header */}
-        <div className="bg-white/95 backdrop-blur-sm rounded-t-2xl p-4 shadow-lg">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full flex items-center justify-center">
-                <MessageCircle className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-800">MERN Chat</h1>
-                <p className="text-sm text-gray-600">
-                  Connected as {user.displayName}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-sm text-gray-600">Online</span>
-              <button
-                onClick={signOut}
-                className="ml-4 px-3 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600"
-              >
-                Sign Out
-              </button>
-            </div>
+    <div className="min-h-screen flex flex-col items-center bg-gradient-to-br from-purple-600 via-blue-600 to-teal-500 p-4">
+      <div className="w-full max-w-2xl bg-white rounded-xl shadow-lg flex flex-col h-[80vh]">
+        <div className="flex items-center justify-between p-4 border-b">
+          <div>
+            <h1 className="text-xl font-bold">Firebase Chat</h1>
+            <p className="text-sm text-gray-500">{user.email}</p>
           </div>
+          <button
+            onClick={handleSignOut}
+            className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+          >
+            Sign Out
+          </button>
         </div>
-
-        {/* Messages */}
-        <div className="flex-1 bg-white/90 backdrop-blur-sm p-4 overflow-y-auto space-y-4">
-          {messages.map((message) => (
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          {messages.map((msg) => (
             <div
-              key={message.id}
+              key={msg.id}
               className={`flex ${
-                message.user === user.displayName
-                  ? "justify-end"
-                  : "justify-start"
-              } ${message.isSystem ? "justify-center" : ""}`}
+                msg.uid === user.uid ? "justify-end" : "justify-start"
+              }`}
             >
-              {message.isSystem ? (
-                <div className="bg-gray-200 text-gray-600 px-4 py-2 rounded-full text-sm">
-                  {message.text}
-                </div>
-              ) : (
-                <div
-                  className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl shadow-md ${
-                    message.user === user.displayName
-                      ? "bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-br-md"
-                      : "bg-white text-gray-800 rounded-bl-md border"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span
-                      className={`text-xs font-semibold ${
-                        message.user === user.displayName
-                          ? "text-purple-100"
-                          : "text-purple-600"
-                      }`}
-                    >
-                      {message.user === user.displayName ? "You" : message.user}
-                    </span>
-                    <span
-                      className={`text-xs ${
-                        message.user === user.displayName
-                          ? "text-purple-100"
-                          : "text-gray-500"
-                      }`}
-                    >
-                      {message.timestamp}
-                    </span>
-                  </div>
-                  <p className="break-words">{message.text}</p>
-                </div>
-              )}
+              <div
+                className={`px-4 py-2 rounded-lg shadow text-sm max-w-xs break-words ${
+                  msg.uid === user.uid
+                    ? "bg-blue-500 text-white"
+                    : "bg-gray-200 text-gray-800"
+                }`}
+              >
+                <span className="block font-semibold">
+                  {msg.uid === user.uid ? "You" : msg.email}
+                </span>
+                <span>{msg.text}</span>
+              </div>
             </div>
           ))}
           <div ref={messagesEndRef} />
         </div>
-
-        {/* Message Input */}
-        <div className="bg-white/95 backdrop-blur-sm rounded-b-2xl p-4 shadow-lg">
-          <div className="flex space-x-3">
-            <input
-              type="text"
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Type your message..."
-              className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-all"
-            />
-            <button
-              onClick={handleSendMessage}
-              disabled={!newMessage.trim()}
-              className="bg-gradient-to-r from-purple-500 to-blue-500 text-white p-3 rounded-xl hover:from-purple-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 transition-all duration-200 shadow-lg"
-            >
-              <Send className="w-5 h-5" />
-            </button>
-          </div>
+        <div className="p-4 border-t flex gap-2">
+          <input
+            type="text"
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder="Type a message..."
+            className="flex-1 border rounded px-3 py-2"
+          />
+          <button
+            onClick={handleSendMessage}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            disabled={!newMessage.trim()}
+          >
+            Send
+          </button>
         </div>
       </div>
     </div>
   );
-};
-
-export default ChatApp;
+}

@@ -1,23 +1,41 @@
 import React, { useState } from "react";
-import { GoogleAuthProvider, signInWithRedirect, getAuth } from "firebase/auth";
+import { auth } from "./firebase";
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
+} from "firebase/auth";
 
-const AuthForm = ({ onSignIn, loading }) => {
-  const handleGoogleSignIn = async () => {
-    const provider = new GoogleAuthProvider();
-    const auth = getAuth();
-    try {
-      await signInWithRedirect(auth, provider);
-    } catch (error) {
-      alert(error.message);
-    }
-  };
+const AuthForm = ({ setLoading, loading }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      alert(error.message);
+    }
+    setLoading(false);
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    onSignIn(email, password, isSignUp);
+    setLoading(true);
+    try {
+      if (isSignUp) {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+    } catch (error) {
+      alert(error.message);
+    }
+    setLoading(false);
   };
 
   return (
