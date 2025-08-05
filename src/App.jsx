@@ -26,8 +26,7 @@ const analytics = getAnalytics(app);
 const auth = getAuth(app);
 
 const ChatApp = () => {
-  const [user, setUser] = useState(null);
-  // Handle Google sign-in redirect result and auth state changes
+  // Handle Google sign-in redirect result
   useEffect(() => {
     const checkRedirectResult = async () => {
       try {
@@ -39,23 +38,13 @@ const ChatApp = () => {
               result.user.displayName || result.user.email.split("@")[0],
           });
         }
-      } catch (error) {}
+      } catch (error) {
+        // Optionally handle error
+      }
     };
     checkRedirectResult();
-
-    // Listen for auth state changes
-    const unsubscribe = auth.onAuthStateChanged((userObj) => {
-      if (userObj) {
-        setUser({
-          email: userObj.email,
-          displayName: userObj.displayName || userObj.email.split("@")[0],
-        });
-      } else {
-        setUser(null);
-      }
-    });
-    return () => unsubscribe();
   }, []);
+  const [user, setUser] = useState(null);
   const [messages, setMessages] = useState([
     {
       id: 1,
