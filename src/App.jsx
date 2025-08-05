@@ -1,29 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Send, MessageCircle } from "lucide-react";
 import AuthForm from "./AuthForm";
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
+import { app, analytics, auth } from "./firebase";
 import {
-  getAuth,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
   getRedirectResult,
 } from "firebase/auth";
 
-// Firebase config
-const firebaseConfig = {
-  apiKey: "AIzaSyBsTxz003FAcNZ-_4GJzWU4kNyMdibxHus",
-  authDomain: "chatapp-eda5b.firebaseapp.com",
-  projectId: "chatapp-eda5b",
-  storageBucket: "chatapp-eda5b.firebasestorage.app",
-  messagingSenderId: "948377219297",
-  appId: "1:948377219297:web:ad89411aea848bcfb087a0",
-  measurementId: "G-719W5ZP0BZ",
-};
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
-const auth = getAuth(app);
+// Firebase config is now in src/firebase.js
 
 const ChatApp = () => {
   // Handle Google sign-in redirect result
