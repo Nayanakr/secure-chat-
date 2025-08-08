@@ -26,10 +26,31 @@ export default function App() {
   // Generate key pair and store public in Firestore, private in localStorage
   async function generateAndStoreKeys(user) {
     if (!user) return;
-    // Check if private key exists locally
-    if (localStorage.getItem("privateKey")) return;
+    let keyPair;
+    if (localStorage.getItem("privateKey")) {
+      // Private key exists, import it and update public key in Firestore
+      const privateKeyJwk = JSON.parse(localStorage.getItem("privateKey"));
+      const privateKey = await importPrivateKey(privateKeyJwk);
+      // Derive public key from private key is not possible, so keep public key in localStorage too
+      // For now, just skip key generation and update Firestore with the last known public key
+      // If public key is not in localStorage, force key regeneration
+      let publicKeyJwk = null;
+      try {
+        publicKeyJwk = JSON.parse(localStorage.getItem("publicKey"));
+      } catch (e) {}
+      if (!publicKeyJwk) {
+        // No public key, force key regeneration
+        localStorage.removeItem("privateKey");
+        return await generateAndStoreKeys(user);
+      }
+      await setDoc(doc(db, "users", user.uid), {
+        publicKey: publicKeyJwk,
+        email: user.email,
+      });
+      return;
+    }
     // Generate key pair
-    const keyPair = await window.crypto.subtle.generateKey(
+    keyPair = await window.crypto.subtle.generateKey(
       {
         name: "RSA-OAEP",
         modulusLength: 2048,
@@ -48,6 +69,8 @@ export default function App() {
       publicKey: publicKeyJwk,
       email: user.email,
     });
+    // Store public key in localStorage for future logins
+    localStorage.setItem("publicKey", JSON.stringify(publicKeyJwk));
     // Export and store private key in localStorage
     const privateKeyJwk = await window.crypto.subtle.exportKey(
       "jwk",
@@ -105,7 +128,7 @@ export default function App() {
     return bytes.buffer;
   }
 
-  // Decrypt messages after fetching
+  // Decrypt messages after fetching (group chat: decrypt with user's own UID)
   useEffect(() => {
     const q = query(collection(db, "messages"), orderBy("createdAt"));
     const unsubscribe = onSnapshot(q, async (snapshot) => {
@@ -116,25 +139,14 @@ export default function App() {
         snapshot.docs.map(async (docSnap) => {
           const data = docSnap.data();
           let text = data.text;
-          // Try to decrypt with recipientCipher first, then senderCipher
-          if (privateKey && data.encrypted) {
-            let decrypted = null;
-            if (data.recipientCipher) {
+          if (privateKey && data.encrypted && data.ciphers && user?.uid) {
+            const myCipher = data.ciphers[user.uid];
+            if (myCipher) {
               try {
-                decrypted = await window.crypto.subtle.decrypt(
+                const decrypted = await window.crypto.subtle.decrypt(
                   { name: "RSA-OAEP" },
                   privateKey,
-                  base64ToArrayBuffer(data.recipientCipher)
-                );
-                text = new TextDecoder().decode(decrypted);
-              } catch (e) {}
-            }
-            if (!decrypted && data.senderCipher) {
-              try {
-                decrypted = await window.crypto.subtle.decrypt(
-                  { name: "RSA-OAEP" },
-                  privateKey,
-                  base64ToArrayBuffer(data.senderCipher)
+                  base64ToArrayBuffer(myCipher)
                 );
                 text = new TextDecoder().decode(decrypted);
               } catch (e) {}
@@ -146,7 +158,7 @@ export default function App() {
       setMessages(msgs);
     });
     return unsubscribe;
-  }, [db]);
+  }, [db, user]);
 
   const handleSignOut = async () => {
     await firebaseSignOut(auth);
@@ -154,43 +166,54 @@ export default function App() {
 
   const handleSendMessage = async () => {
     if (!newMessage.trim()) return;
-    // For demo: prompt for recipient email (in real app, select from user list)
-    let recipientEmail = prompt(
-      "Enter recipient email (for demo, use your own email to test):",
-      user.email
-    );
-    if (!recipientEmail) return;
-    // Find recipient by email
-    let recipientUid = null;
-    let recipientPublicKey = null;
-    // Query users collection for recipient
-    const usersSnapshot = await getDoc(doc(db, "users", user.uid));
-    if (recipientEmail === user.email && usersSnapshot.exists()) {
-      recipientUid = user.uid;
-      recipientPublicKey = usersSnapshot.data().publicKey;
-    } else {
-      // In a real app, you would query by email
-      alert(
-        "Only your own email is supported in this demo. For multi-user, implement user lookup by email."
-      );
+    // True group chat: encrypt message for every user in the group
+    // Fetch all users' public keys
+    const usersCol = collection(db, "users");
+    let allUsers = [];
+    try {
+      const qSnap = await (
+        await import("firebase/firestore")
+      ).getDocs(usersCol);
+      allUsers = qSnap.docs.map((docSnap) => ({
+        uid: docSnap.id,
+        ...docSnap.data(),
+      }));
+    } catch (e) {
+      alert("Failed to fetch users for group encryption.");
       return;
     }
-    // Encrypt for recipient
-    const recipientKey = await importPublicKey(recipientPublicKey);
+    if (!allUsers.length) {
+      alert("No users found for group encryption.");
+      return;
+    }
+    // Check for users missing public keys
+    const missingKeys = allUsers
+      .filter((u) => !u.publicKey)
+      .map((u) => u.email || u.uid);
+    if (missingKeys.length > 0) {
+      alert(
+        "Warning: The following users are missing public keys and will NOT be able to read this message: " +
+          missingKeys.join(", ")
+      );
+    }
     const encoded = new TextEncoder().encode(newMessage);
-    const recipientCipher = arrayBufferToBase64(
-      await window.crypto.subtle.encrypt(
-        { name: "RSA-OAEP" },
-        recipientKey,
-        encoded
-      )
-    );
-    // Encrypt for sender (so sender can also read their own message)
-    const senderKey = recipientKey; // In demo, sender and recipient are the same
-    const senderCipher = recipientCipher;
+    const ciphers = {};
+    for (const u of allUsers) {
+      if (!u.publicKey) continue;
+      try {
+        const pubKey = await importPublicKey(u.publicKey);
+        const cipher = arrayBufferToBase64(
+          await window.crypto.subtle.encrypt(
+            { name: "RSA-OAEP" },
+            pubKey,
+            encoded
+          )
+        );
+        ciphers[u.uid] = cipher;
+      } catch (e) {}
+    }
     await addDoc(collection(db, "messages"), {
-      senderCipher,
-      recipientCipher,
+      ciphers, // map of uid -> ciphertext
       encrypted: true,
       createdAt: new Date(),
       uid: user.uid,
